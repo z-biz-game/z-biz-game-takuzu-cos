@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#080B16" />
+<title>数白 · Takuzu 二值偶格推理</title>
+<meta name="description" content="Takuzu / Binairo 数白：用 ○ 与 ● 填满棋盘，不许三连同符，每行每列两符各半。每局唯一解、每局都能用逻辑推到底，提示只说推得出的那一格。" />
+<!-- Inline icon: without it the browser probes the Pages domain root for /favicon.ico and logs a 404. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23080B16'/%3E%3Ccircle cx='11' cy='11' r='5' fill='none' stroke='%237BB8FF' stroke-width='2.6'/%3E%3Ccircle cx='21' cy='21' r='5' fill='%23FFC85C'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="css/game.css" />
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand">
+      <h1>数白</h1>
+      <p class="sub">Takuzu · 二值偶格</p>
+    </div>
+    <div class="top-actions">
+      <button id="btn-sound" class="ghost" type="button" aria-pressed="true">音效 开</button>
+      <button id="btn-motion" class="ghost" type="button" aria-pressed="false">动效 全</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="view-menu" class="view">
+      <div class="menu-hero">
+        <h2>只有两种符号，却处处是排除法</h2>
+        <p>
+          用 ○ 和 ● 填满棋盘：任何一行、任何一列里都不许出现三个相连的同符，
+          而且每行每列的 ○ 与 ● 数量必须正好各半。题面给出其中一小部分，其余全靠推。
+          这里没有运气题：每一局都只有一个答案，也每一局都能靠逻辑填到底。
+        </p>
+      </div>
+
+      <div class="menu-cols">
+        <div class="col">
+          <h3 class="col-title">选一档</h3>
+          <div id="tier-list" class="tiers"></div>
+          <div id="resume-card" class="resume" hidden>
+            <div class="resume-txt">
+              <strong id="resume-name">未完成的牌局</strong>
+              <span id="resume-meta"></span>
+            </div>
+            <button id="btn-resume" class="primary" type="button">继续</button>
+          </div>
+        </div>
+
+        <div class="col">
+          <h3 class="col-title">纪录（同档比：先看不求提示几次，再看步数，最后看时间）</h3>
+          <ul id="record-list" class="records"></ul>
+
+          <h3 class="col-title">你会用到的三条规则</h3>
+          <ol class="rules">
+            <li><b>禁止三连</b>：一行里已有两个相邻同符，它们两侧的格只能是另一个符。</li>
+            <li><b>半数已满</b>：某一行 ○ 已经够了一半（也就是还差的 ○ 正好等于空位数），这一行剩下的格全是 ●。</li>
+            <li><b>这格放不下</b>：这个格放 ○ 会让所在行或列立刻违规（三连、超半数、或再也凑不够半数），那它只能是 ●。</li>
+          </ol>
+          <p class="rules-note">三条都只看一行（或一列）自己的账：它们写下的每一格，在盘面的<b>每一个解</b>里都成立。前两条是同一件事的两种读法，所以只列一条。</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-game" class="view" hidden>
+      <div class="stage">
+        <div class="stage-head">
+          <span id="stat-name" class="puzzle-name">—</span>
+          <span id="stat-tier" class="chip">—</span>
+          <span id="stat-time" class="chip mono">00:00</span>
+        </div>
+        <div id="board-wrap">
+          <canvas id="board" role="img" aria-label="数白棋盘：点一下放 ○，再点换 ●，第三下清空"></canvas>
+          <div id="win-veil" hidden>
+            <div class="win-card">
+              <h3>每一行都各半了</h3>
+              <p id="win-meta"></p>
+              <p id="win-record" class="win-record"></p>
+              <div class="win-actions">
+                <button id="btn-again" class="primary" type="button">再来一局</button>
+                <button id="btn-menu-2" class="ghost" type="button">回选档</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p id="state-line" class="conflict-line" aria-live="polite"></p>
+      </div>
+
+      <aside class="panel">
+        <div class="cycle-note" role="note">
+          <span>循环填子</span><b>空 → ○ → ● → 空</b>
+          <em>点带角标的格（题面给的）不会有反应</em>
+        </div>
+        <div class="acts">
+          <button id="btn-hint" class="primary" type="button">提示<span class="mono" id="hint-count">0</span></button>
+          <button id="btn-undo" class="ghost" type="button">撤销</button>
+          <button id="btn-new" class="ghost" type="button">换一局</button>
+          <button id="btn-menu" class="ghost" type="button">回选档</button>
+        </div>
+
+        <div class="stats">
+          <div class="stat"><span>步数</span><b id="stat-moves" class="mono">0</b></div>
+          <div class="stat"><span>提示</span><b id="stat-hints" class="mono">0</b></div>
+          <div class="stat"><span>已填格</span><b id="stat-filled" class="mono">0/0</b></div>
+          <div class="stat"><span>待填格</span><b id="stat-remaining" class="mono">0</b></div>
+          <div class="stat"><span>填完的行/列</span><b id="stat-lines" class="mono">0/0</b></div>
+          <div class="stat"><span>冲突</span><b id="stat-conflicts" class="mono">0</b></div>
+          <div class="stat"><span>难度实测</span><b id="stat-score" class="mono">—</b></div>
+        </div>
+
+        <div class="hint-box">
+          <h4 id="hint-rule">提示理由</h4>
+          <p id="hint-line">按 <b>提示</b> 会说出当前能推的一格，以及它依据哪条规则。</p>
+        </div>
+
+        <div class="legend">
+          <span><i class="sw sw-zero"></i>○ 空心环</span>
+          <span><i class="sw sw-one"></i>● 实心点</span>
+          <span><i class="sw sw-given"></i>题面给的（带角标）</span>
+          <span><i class="sw sw-done"></i>已各半的行/列</span>
+          <span><i class="sw sw-bad"></i>坏了规矩</span>
+        </div>
+        <p class="keyhint"><b>点一下</b> 换下一个符 · <b>拖动</b> 沿路铺同一个符 · <b>H</b> 提示 · <b>Z</b> 撤销</p>
+      </aside>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span>每局唯一解 · 每局可用逻辑填到底 · 提示只给推得出的一步 — 由 <code>tools/verify.sh</code> 在真实浏览器里逐条断言。</span>
+    <button id="btn-reset" class="link" type="button">清空存档</button>
+  </footer>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
