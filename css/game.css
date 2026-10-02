@@ -6,6 +6,14 @@
 
 * { box-sizing: border-box; }
 
+/* viewport-fit=cover 之后 env() 才有非零值；不写 max()/兜底的话，桌面端这四个量恒为 0。 */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+}
+
 html, body {
   margin: 0;
   min-height: 100%;
@@ -14,6 +22,7 @@ html, body {
   color: var(--ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
 }
 
 body { touch-action: manipulation; }
@@ -21,11 +30,16 @@ body { touch-action: manipulation; }
 #app {
   max-width: 1180px;
   margin: 0 auto;
-  padding: var(--space-page) var(--space-page) var(--space-inner);
+  padding:
+    calc(var(--space-page) + var(--safe-top))
+    calc(var(--space-page) + var(--safe-right))
+    calc(var(--space-page) + var(--safe-bottom))
+    calc(var(--space-page) + var(--safe-left));
   display: flex;
   flex-direction: column;
   gap: var(--space-card);
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
@@ -62,8 +76,27 @@ button {
   border-radius: var(--radius-button);
   border: 1px solid var(--line);
   background: var(--surface);
-  padding: 10px 16px;
+  padding: 12px 18px;
+  /* 拇指命中区下限 44×44（Apple HIG 与 WCAG 2.2 都取这个数）；文字按钮靠它撑高度。 */
+  min-height: 44px;
+  min-width: 44px;
   transition: background var(--dur-tap) var(--ease-ease), border-color var(--dur-tap) var(--ease-ease), transform var(--dur-tap) var(--ease-spring);
+}
+
+button.ghost, button.primary, .tier, .acts button { touch-action: manipulation; }
+
+/* HUD 上的方形图形按钮（暂停、全屏）：内容居中，命中区仍是 44×44。 */
+button.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  font-size: 17px;
+  line-height: 1;
 }
 
 button:active { transform: translateY(1px); }
@@ -91,6 +124,8 @@ button.link {
   background: none;
   color: var(--ink-faint);
   padding: 0 4px;
+  min-height: 0;
+  min-width: 0;
   text-decoration: underline;
   font-size: 12px;
 }
@@ -108,6 +143,18 @@ main { flex: 1; }
 
 .reduce-motion .view,
 .reduce-motion button { animation: none; transition: none; }
+
+/* 系统偏好是地板：玩家没碰过游戏内那枚开关时，这条 @media 就得让 OS 设置直接生效。
+   只列本仓真实存在的选择器——写一条命中不到东西的 @media 等于没做。 */
+@media (prefers-reduced-motion: reduce) {
+  .view,
+  #win-veil,
+  #pause-veil,
+  button {
+    animation: none !important;
+    transition: none !important;
+  }
+}
 
 /* menu */
 
@@ -229,7 +276,13 @@ main { flex: 1; }
   gap: 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius-card);
-  background: var(--surface);
+  /* 织理由 assets/gen/make_art.py 现产（256² 整数频率正弦叠加，四边无缝），soft-light 叠在
+     主题色上——"这是一张桌子"的观感来自图而不是渐变。图取不到时自然退化成纯色。 */
+  background-color: var(--surface);
+  background-image: url('../assets/img/board-texture.png');
+  background-blend-mode: soft-light;
+  background-size: 256px 256px;
+  background-repeat: repeat;
   padding: var(--space-card);
 }
 
@@ -277,6 +330,32 @@ main { flex: 1; }
   border-radius: var(--radius-card);
   animation: rise var(--dur-base) var(--ease-ease) both;
 }
+
+/* 暂停罩与胜利罩同一套几何，但遮得更透：暂停不是离开，回来还得读得清同一张盘。 */
+#pause-veil {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(8, 11, 22, 0.6);
+  border-radius: var(--radius-card);
+  animation: rise var(--dur-base) var(--ease-ease) both;
+}
+
+.pause-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-inner);
+  padding: var(--space-card);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-card);
+  background: var(--surface-lift);
+}
+
+.pause-card h3 { margin: 0; font-size: 19px; letter-spacing: 0.1em; }
+.pause-card p { margin: 0; font-size: 12.5px; color: var(--ink-dim); }
+.pause-actions { display: flex; gap: var(--space-gutter); }
 
 .win-card {
   text-align: center;
