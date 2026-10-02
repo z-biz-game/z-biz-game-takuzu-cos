@@ -2,7 +2,7 @@
 // verification harness drives. No rule about the board lives here — every judgement comes from
 // js/engine/takuzu.js through js/ui/game.js.
 
-import { Palette, Cell, applyThemeVars, setReduceMotion, systemPrefersReducedMotion } from './theme.js';
+import { Palette, Cell, applyThemeVars, setReduceMotion, systemPrefersReducedMotion, prefersReducedMotion } from './theme.js';
 import { Sound } from './audio/synth.js';
 import { Store } from './store.js';
 import { TIERS, tierFor, makePuzzle, generate, randomGrid, hideCells } from './engine/generate.js';
@@ -39,6 +39,12 @@ const el = {
   winVeil: $('#win-veil'),
   winMeta: $('#win-meta'),
   winRecord: $('#win-record'),
+  pauseVeil: $('#pause-veil'),
+  btnPause: $('#btn-pause'),
+  btnPausePlay: $('#btn-pause-play'),
+  btnPauseMenu: $('#btn-pause-menu'),
+  btnRestart: $('#btn-restart'),
+  btnFull: $('#btn-full'),
   wrap: $('#board-wrap'),
   canvas: $('#board'),
 };
@@ -49,10 +55,22 @@ let pulse = null;
 let stroke = null;
 let startedAt = 0;
 let baseElapsed = 0;
-let ticker = 0;
+let paused = false;
+
+// animClock 只由帧 dt 累加；每一段装饰动画都按 (animClock - t0) 取**闭式解**，
+// 不做 `x += v*dt` 那种增量积分。于是同一虚拟时刻在 30/60/120Hz 下读到同一个值——
+// 帧率无关是结构性的，不是把系数调到看起来一致。
+const PULSE_LIFE = 1.6;
+const BURST_LIFE = 1.5;
+let animClock = 0;
+let lastFrame = -1;
+let frames = 0;
+let rafId = 0;
+let burst = null;
 
 const clock = () => baseElapsed + (startedAt ? Date.now() - startedAt : 0);
 const running = () => !!startedAt;
+const interactive = () => !!game && game.status !== 'won' && !paused;
 
 function fmtMs(ms) {
   const s = Math.floor(ms / 1000);
@@ -70,9 +88,65 @@ function draw() {
   const { w, h } = availBox();
   view.resize(game, w, h);
   view.draw(game, {
-    pulse,
+    pulse: pulseInfo(),
     preview: stroke && stroke.items.length ? { cells: stroke.items.map((i) => i.cell) } : null,
+    burst: burstView(),
   });
+}
+
+// 存活与过期只在 advanceAnimations 里判；draw 只读。暂停时不推进 animClock，
+// 于是脉冲停在原地——恢复后接着走完剩下的路，而不是被一个 setTimeout 到点抹掉。
+function pulseInfo() {
+  if (!pulse) return null;
+  return { cell: pulse.cell, color: pulse.color, progress: Math.min(1, (animClock - pulse.t0) / PULSE_LIFE) };
+}
+
+function burstView() {
+  if (!burst) return null;
+  return { age: animClock - burst.t0, seeds: burst.seeds };
+}
+
+let dirty = true;
+let loopOn = false;
+let lastShownSecond = -1;
+
+function advanceAnimations(dt) {
+  animClock += dt;
+  frames++;
+  if (pulse && animClock - pulse.t0 >= PULSE_LIFE) { pulse = null; dirty = true; }
+  if (burst && animClock - burst.t0 >= BURST_LIFE) { burst = null; dirty = true; }
+}
+
+// 单一入口：帧 dt 只在这里被消费一次，其余地方一律读 animClock。
+function frame(ts) {
+  if (!loopOn) return;
+  rafId = requestAnimationFrame(frame);
+  const dt = lastFrame < 0 ? 0 : Math.min(1, (ts - lastFrame) / 1000);
+  lastFrame = ts;
+  if (!paused) advanceAnimations(dt);
+  const shown = Math.floor(clock() / 1000);
+  if (shown !== lastShownSecond) {
+    lastShownSecond = shown;
+    el.time.textContent = fmtMs(clock());
+  }
+  if (dirty || pulse || burst) {
+    dirty = false;
+    draw();
+  }
+}
+
+function startLoop() {
+  if (loopOn) return;
+  loopOn = true;
+  lastFrame = -1;
+  rafId = requestAnimationFrame(frame);
+}
+
+function stopLoop() {
+  if (!loopOn) return;
+  loopOn = false;
+  if (rafId && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(rafId);
+  rafId = 0;
 }
 
 // One place writes the readouts, so a stat can never be updated by half the file.
@@ -111,6 +185,7 @@ function renderStateLine() {
 
 function syncAll() {
   syncStats();
+  dirty = true;
   draw();
 }
 
@@ -119,20 +194,15 @@ function flushResume() {
   Store.saveResume(game.puzzle, game.st.grid, clock(), { moves: game.moves, hints: game.hints });
 }
 
+// 计时读数由动画环按帧检查秒界，不再单开一个 setInterval —— 两条时钟迟早会漂。
 function startClock() {
   startedAt = Date.now();
-  clearInterval(ticker);
-  ticker = setInterval(() => {
-    el.time.textContent = fmtMs(clock());
-    if (pulse) draw();
-  }, 1000);
+  lastShownSecond = -1;
 }
 
 function stopClock() {
   baseElapsed = clock();
   startedAt = 0;
-  clearInterval(ticker);
-  ticker = 0;
 }
 
 function showHint(info) {
@@ -145,24 +215,57 @@ function showHint(info) {
   if (info.conflict) {
     el.hintRule.textContent = '这里和题面矛盾';
     el.hintLine.textContent = info.conflict;
-    pulse = { cell: info.cell, color: Palette.error };
-    const mine = pulse;
-    setTimeout(() => {
-      if (pulse === mine) pulse = null;
-      draw();
-    }, 1600);
+    pulse = { cell: info.cell, color: Palette.error, t0: animClock };
+    dirty = true;
     Sound.conflict();
     return;
   }
   el.hintRule.textContent = `规则：${info.rule}`;
   el.hintLine.textContent = info.why;
-  pulse = { cell: info.cell };
-  const mine = pulse;
-  setTimeout(() => {
-    if (pulse === mine) pulse = null;
-    draw();
-  }, 1600);
+  pulse = { cell: info.cell, t0: animClock };
+  dirty = true;
   Sound.hint();
+}
+
+function lcg(seed) {
+  let s = seed >>> 0;
+  return () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
+}
+
+function hashSeed(str) {
+  let h = 2166136261;
+  for (let i = 0; i < String(str).length; i++) {
+    h ^= String(str).charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+// 粒子存的是**种子**（归一化坐标与初速度），位置由渲染层对 t 取闭式解。
+// 种子来自本局 seed 的哈希而不是 Math.random —— 否则同一虚拟时刻在 30/60/120Hz 下
+// 会各自掷出一套不同的粒子，对拍就成了比随机数。
+function spawnBurst() {
+  if (prefersReducedMotion()) {
+    burst = null;
+    return;
+  }
+  const rnd = lcg(hashSeed(game.puzzle.originSeed || game.puzzle.seed));
+  const seeds = [];
+  for (let i = 0; i < 26; i++) {
+    const a = rnd() * Math.PI * 2;
+    const sp = 0.22 + rnd() * 0.5;
+    seeds.push({
+      x: 0.5 + (rnd() - 0.5) * 0.55,
+      y: 0.5 + (rnd() - 0.5) * 0.35,
+      vx: Math.cos(a) * sp,
+      vy: Math.sin(a) * sp - 0.45,
+      delay: rnd() * 0.25,
+      life: 0.7 + rnd() * 0.5,
+      size: 0.05 + rnd() * 0.06,
+    });
+  }
+  burst = { t0: animClock, seeds, gravity: 1.6 };
+  dirty = true;
 }
 
 function onWin() {
@@ -179,6 +282,7 @@ function onWin() {
   el.winMeta.textContent = `${tierFor(game.puzzle.tier).name} · ${game.n}×${game.n} · ${fmtMs(ms)} · ${game.moves} 步 · 提示 ${game.hints} 次`;
   el.winRecord.textContent = better ? '新纪录：这一局比存档里的更不求人。' : '未破纪录：同档先比提示次数。';
   el.winVeil.hidden = false;
+  spawnBurst();
   Sound.win();
   renderRecords();
 }
@@ -194,7 +298,7 @@ function afterStep(soundKey) {
 }
 
 function useHint() {
-  if (!game || game.status === 'won') return null;
+  if (!interactive()) return null;
   const before = game.hints;
   const info = game.hint();
   if (!info) return null;
@@ -206,7 +310,7 @@ function useHint() {
 }
 
 function undo() {
-  if (!game) return null;
+  if (!game || paused) return null;
   const step = game.undo();
   if (!step) return null;
   pulse = null;
@@ -216,16 +320,30 @@ function undo() {
   return step;
 }
 
+// 一局的全部可变状态在这一个函数里清零：漏一项就是"重开之后还带着上一局的余温"。
+function resetRunState() {
+  pulse = null;
+  stroke = null;
+  burst = null;
+  note = { text: '', good: false };
+  paused = false;
+  animClock = 0;
+  lastFrame = -1;
+  frames = 0;
+  baseElapsed = 0;
+  startedAt = 0;
+  lastShownSecond = -1;
+  el.winVeil.hidden = true;
+  el.pauseVeil.hidden = true;
+  syncPauseHud();
+}
+
 function begin({ tier = 'trainee', seed = null, resume = null } = {}) {
   const origin = seed || `s${Math.floor(Math.random() * 1e9)}`;
   const puzzle = makePuzzle(origin, tier);
   if (!puzzle) return null;
+  resetRunState();
   game = new Game(puzzle);
-  pulse = null;
-  stroke = null;
-  note = { text: '', good: false };
-  el.winVeil.hidden = true;
-  baseElapsed = 0;
   if (resume) {
     game.moves = resume.moves || 0;
     game.hints = resume.hints || 0;
@@ -243,14 +361,101 @@ function begin({ tier = 'trainee', seed = null, resume = null } = {}) {
   return game;
 }
 
+// 重开本局 ≠ 换一局：同一张题面（生成器按 origin seed 确定，所以盘一模一样），
+// 把自己填的墨与计时、脉冲、粒子、拖动缓冲一并擦掉。返回前后数值对，供实测复核。
+function restart() {
+  if (!game) return null;
+  const { originSeed, seed: innerSeed, tier } = game.puzzle;
+  const from = { moves: game.moves, hints: game.hints, steps: game.steps.length, elapsedMs: clock() };
+  const puzzle = makePuzzle(originSeed || innerSeed, tier);
+  if (!puzzle) return null;
+  resetRunState();
+  game = new Game(puzzle);
+  show('game');
+  startClock();
+  el.hintRule.textContent = '提示理由';
+  el.hintLine.textContent = '按 提示 会说出当前能推的一格，以及它依据哪条规则。';
+  syncAll();
+  flushResume();
+  return { from, to: { moves: game.moves, hints: game.hints, steps: game.steps.length, elapsedMs: clock() } };
+}
+
+function syncPauseHud() {
+  el.pauseVeil.hidden = !paused;
+  el.btnPause.setAttribute('aria-pressed', String(paused));
+  el.btnPause.textContent = paused ? '▶' : '⏸';
+  el.btnPause.setAttribute('aria-label', paused ? '继续' : '暂停');
+  el.btnPause.title = paused ? '继续 (P)' : '暂停 (P)';
+}
+
+// 暂停要做满三件事：计时折进 baseElapsed（虚拟时长因此不再增长）、输入冻结、
+// AudioContext 真 suspend。恢复时反过来，盘面一个字节都不动。
+function setPaused(next) {
+  if (!game || game.status === 'won') return paused;
+  const v = !!next;
+  if (v === paused) return paused;
+  paused = v;
+  if (paused) {
+    stopClock();
+    Sound.setSuspended(true);
+    flushResume();
+  } else {
+    startClock();
+    Sound.setSuspended(false);
+  }
+  syncPauseHud();
+  syncStats();
+  dirty = true;
+  draw();
+  return paused;
+}
+
+const fullscreenElement = () => document.fullscreenElement || document.webkitFullscreenElement || null;
+
+function syncFullHud() {
+  const on = !!fullscreenElement();
+  el.btnFull.setAttribute('aria-pressed', String(on));
+  el.btnFull.setAttribute('aria-label', on ? '退出全屏' : '全屏');
+  el.btnFull.title = on ? '退出全屏 (F)' : '全屏 (F)';
+  return on;
+}
+
+// iOS Safari 与 Electron 的老版本各有各的前缀；两边都没有时按钮仍在、状态不改，
+// 比抛一个未捕获的 rejection 诚实。
+function toggleFullscreen() {
+  const root = document.documentElement;
+  const req = root.requestFullscreen || root.webkitRequestFullscreen;
+  const exit = document.exitFullscreen || document.webkitExitFullscreen;
+  const target = fullscreenElement() ? exit : req;
+  if (!target) return Promise.resolve(syncFullHud());
+  let p;
+  try {
+    p = target.call(fullscreenElement() ? document : root);
+  } catch {
+    return Promise.resolve(syncFullHud());
+  }
+  return p && typeof p.then === 'function'
+    ? p.then(() => syncFullHud()).catch(() => syncFullHud())
+    : Promise.resolve(syncFullHud());
+}
+
 function show(which) {
   el.viewMenu.hidden = which !== 'menu';
   el.viewGame.hidden = which !== 'game';
   if (which === 'menu') {
+    stopLoop();
     stopClock();
+    pulse = null;
+    burst = null;
+    paused = false;
+    Sound.setSuspended(false);
+    syncPauseHud();
     renderMenu();
   }
-  if (which === 'game') draw();
+  if (which === 'game') {
+    startLoop();
+    draw();
+  }
   return which;
 }
 
@@ -317,6 +522,12 @@ function applySettings() {
   const reduce = !!Store.setting('reduceMotion') || systemPrefersReducedMotion();
   setReduceMotion(!!Store.setting('reduceMotion'));
   document.body.classList.toggle('reduce-motion', reduce);
+  // 关了动效就不该还有东西在飘：已经在飞的粒子与脉冲当场清掉。
+  if (reduce && (burst || pulse)) {
+    burst = null;
+    pulse = null;
+    dirty = true;
+  }
   $('#btn-sound').setAttribute('aria-pressed', String(!!Store.setting('sound')));
   $('#btn-sound').textContent = Store.setting('sound') ? '音效 开' : '音效 关';
   $('#btn-motion').setAttribute('aria-pressed', String(!!Store.setting('reduceMotion')));
@@ -340,7 +551,7 @@ function unpreview() {
 }
 
 function pointerDown(ev) {
-  if (!game || game.status === 'won') return;
+  if (!interactive()) return;
   const t = view.hitCell(ev.clientX, ev.clientY);
   if (t < 0) return;
   ev.preventDefault();
@@ -394,9 +605,24 @@ el.canvas.addEventListener('pointercancel', () => {
 });
 el.canvas.addEventListener('contextmenu', (ev) => ev.preventDefault());
 
+function toggleMute() {
+  Store.setSetting('sound', !Store.setting('sound'));
+  applySettings();
+  // 开的那一刻给一声，让玩家知道声音真回来了；关的时候这一调用不会新建任何振荡器。
+  Sound.place();
+}
+
 $('#btn-hint').addEventListener('click', useHint);
 $('#btn-undo').addEventListener('click', undo);
 $('#btn-new').addEventListener('click', () => begin({ tier: game ? game.puzzle.tier : 'trainee' }));
+$('#btn-restart').addEventListener('click', restart);
+$('#btn-pause').addEventListener('click', () => setPaused(!paused));
+$('#btn-pause-play').addEventListener('click', () => setPaused(false));
+$('#btn-pause-menu').addEventListener('click', () => {
+  flushResume();
+  show('menu');
+});
+$('#btn-full').addEventListener('click', () => toggleFullscreen());
 $('#btn-menu').addEventListener('click', () => {
   flushResume();
   show('menu');
@@ -408,11 +634,7 @@ $('#btn-resume').addEventListener('click', () => {
   if (!r) return;
   begin({ tier: r.tier, seed: r.seed, resume: r });
 });
-$('#btn-sound').addEventListener('click', () => {
-  Store.setSetting('sound', !Store.setting('sound'));
-  applySettings();
-  Sound.place();
-});
+$('#btn-sound').addEventListener('click', toggleMute);
 $('#btn-motion').addEventListener('click', () => {
   Store.setSetting('reduceMotion', !Store.setting('reduceMotion'));
   applySettings();
@@ -424,17 +646,43 @@ $('#btn-reset').addEventListener('click', () => {
   show('menu');
 });
 
+// 键盘线：Enter/Space 开局（选档页）或切暂停（关卡内）· P 暂停 · R 重开 · M 静音 ·
+// F 全屏 · H 提示 · Z 撤销 · ?/Esc 回选档看规则。
 window.addEventListener('keydown', (ev) => {
-  if (ev.target && /input|textarea/i.test(ev.target.tagName)) return;
-  if (ev.key === 'h') useHint();
-  else if (ev.key === 'z') undo();
+  if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  const tag = (ev.target && ev.target.tagName) || '';
+  if (/input|textarea|select/i.test(tag)) return;
+  // 焦点停在某个按钮上时，Space/Enter 属于浏览器的原生激活，抢过来只会变成"按了没反应"。
+  if ((ev.key === ' ' || ev.key === 'Enter') && tag === 'BUTTON') return;
+  const menu = el.viewGame.hidden;
+  const k = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key;
+  const take = (fn) => {
+    ev.preventDefault();
+    fn();
+  };
+
+  if (k === 'Enter' || k === ' ') return menu ? take(() => begin({ tier: 'trainee' })) : take(() => setPaused(!paused));
+  if (k === 'p') return take(() => setPaused(!paused));
+  if (k === 'r' && !menu) return take(restart);
+  if (k === 'm') return take(toggleMute);
+  if (k === 'f') return take(() => toggleFullscreen());
+  if (k === 'h') return take(useHint);
+  if (k === 'z') return take(undo);
+  if (k === '?' || k === 'Escape') return take(() => show('menu'));
+  return undefined;
 });
 
 window.addEventListener('resize', draw);
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') flushResume();
+  if (document.visibilityState === 'hidden') {
+    flushResume();
+    // 人已经离开这一页了，计时不该继续走：自动进暂停，回来由玩家亲手续。
+    if (game && game.status !== 'won' && !paused) setPaused(true);
+  }
 });
 window.addEventListener('pagehide', flushResume);
+document.addEventListener('fullscreenchange', syncFullHud);
+document.addEventListener('webkitfullscreenchange', syncFullHud);
 
 applyThemeVars();
 applySettings();
@@ -448,18 +696,38 @@ window.takuzu = {
   },
   show,
   begin,
+  restart,
+  setPaused,
+  toggleFullscreen,
+  toggleMute,
   useHint,
   undo,
+  // 窗口状态挂出来：任何探针读不到状态的仓，判据都无法复验。
+  runtime: () => ({
+    paused,
+    animClock,
+    frames,
+    elapsedMs: clock(),
+    running: running(),
+    screen: el.viewGame.hidden ? 'menu' : 'game',
+    pulse: !!pulse,
+    pulseProgress: pulse ? Math.min(1, (animClock - pulse.t0) / PULSE_LIFE) : 0,
+    particles: burst ? burst.seeds.length : 0,
+    burstAge: burst ? animClock - burst.t0 : -1,
+    reduceMotion: prefersReducedMotion(),
+    fullscreen: !!fullscreenElement(),
+    audio: Sound.state(),
+  }),
   // The harness commits through the same path a pointer release does, so a scenario that passes
   // here has driven the real state machine rather than a copy of it.
   stroke(cells, value) {
-    if (!game) return null;
+    if (!interactive()) return null;
     const step = game.stroke(cells, value);
     if (step) afterStep(step.value === EMPTY ? 'rub' : 'place');
     return step;
   },
   tap(t) {
-    if (!game) return null;
+    if (!interactive()) return null;
     const step = game.tap(t);
     if (step) afterStep(step.value === EMPTY ? 'rub' : 'place');
     return step;

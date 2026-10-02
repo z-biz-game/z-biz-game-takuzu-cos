@@ -21,6 +21,14 @@ export class BoardView {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.geo = { cell: 0, x: 0, y: 0, w: 0, h: 0, dpr: 1 };
+    // 胜利粒子的贴图由 assets/gen/make_art.py 现产。取不到（file://、离线首帧、桩环境）
+    // 时 drawSprite 自己退化成实心圆，所以这张图缺了也不会有东西不显示。
+    this.spark = null;
+    if (typeof Image === 'function') {
+      const img = new Image();
+      img.onload = () => { this.spark = img; };
+      img.src = 'assets/img/spark.png';
+    }
   }
 
   // The backing buffer is sized in device pixels while every draw call stays in CSS pixels: one
@@ -60,7 +68,7 @@ export class BoardView {
     return gy * game.n + gx;
   }
 
-  draw(game, { pulse = null, preview = null } = {}) {
+  draw(game, { pulse = null, preview = null, burst = null } = {}) {
     this.game = game;
     const { ctx, geo } = this;
     const { cell } = geo;
@@ -171,11 +179,43 @@ export class BoardView {
 
     // What a hint just named — the only place the UI is allowed to say "look here".
     if (pulse && pulse.cell != null) {
+      const p = pulse.progress || 0;
       const r = this.cellRect(pulse.cell);
+      const inset = 2 + p * cell * 0.12;
+      ctx.save();
+      ctx.globalAlpha = 1 - p * p;
       ctx.strokeStyle = pulse.color || Palette.hint;
-      ctx.lineWidth = Math.max(2, cell * 0.09);
-      roundRect(ctx, r.x + 2, r.y + 2, cell - 4, cell - 4, Radius.cell);
+      ctx.lineWidth = Math.max(2, cell * 0.09 * (1 - 0.45 * p));
+      roundRect(ctx, r.x + inset, r.y + inset, cell - inset * 2, cell - inset * 2, Radius.cell);
       ctx.stroke();
+      ctx.restore();
+    }
+
+    // 胜利迸发。位置是 t 的**闭式解**而不是逐帧累加：同一 animClock 在 30/60/120Hz 下
+    // 画出来的是同一张图，帧率无关因此是结构性的。delay 让 26 颗分批出场。
+    if (burst && burst.seeds) {
+      const span = game.n * cell;
+      const { age, seeds, gravity } = burst;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      for (const s of seeds) {
+        const t = age - s.delay;
+        if (t < 0 || t > s.life) continue;
+        const x = geo.x + (s.x + s.vx * t) * span;
+        const y = geo.y + (s.y + s.vy * t + 0.5 * gravity * t * t) * span;
+        const k = 1 - t / s.life;
+        const d = s.size * span * (0.55 + 0.45 * k);
+        ctx.globalAlpha = Math.max(0, k);
+        if (this.spark) {
+          ctx.drawImage(this.spark, x - d / 2, y - d / 2, d, d);
+        } else {
+          ctx.beginPath();
+          ctx.arc(x, y, d / 2, 0, Math.PI * 2);
+          ctx.fillStyle = Palette.accent;
+          ctx.fill();
+        }
+      }
+      ctx.restore();
     }
   }
 }

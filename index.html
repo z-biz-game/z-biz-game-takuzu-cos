@@ -36,6 +36,7 @@
       <p class="sub">Takuzu · 二值偶格</p>
     </div>
     <div class="top-actions">
+      <button id="btn-full" class="ghost icon-btn" type="button" aria-pressed="false" aria-label="全屏" title="全屏 (F)">⛶</button>
       <button id="btn-sound" class="ghost" type="button" aria-pressed="true">音效 开</button>
       <button id="btn-motion" class="ghost" type="button" aria-pressed="false">动效 全</button>
     </div>
@@ -86,9 +87,20 @@
           <span id="stat-name" class="puzzle-name">—</span>
           <span id="stat-tier" class="chip">—</span>
           <span id="stat-time" class="chip mono">00:00</span>
+          <button id="btn-pause" class="ghost icon-btn" type="button" aria-pressed="false" aria-label="暂停" title="暂停 (P)">⏸</button>
         </div>
         <div id="board-wrap">
           <canvas id="board" role="img" aria-label="数白棋盘：点一下放 ○，再点换 ●，第三下清空"></canvas>
+          <div id="pause-veil" hidden>
+            <div class="pause-card">
+              <h3>已暂停</h3>
+              <p>计时停在这里，盘面不会替你走下去。</p>
+              <div class="pause-actions">
+                <button id="btn-pause-play" class="primary" type="button">继续</button>
+                <button id="btn-pause-menu" class="ghost" type="button">回选档</button>
+              </div>
+            </div>
+          </div>
           <div id="win-veil" hidden>
             <div class="win-card">
               <h3>每一行都各半了</h3>
@@ -112,6 +124,7 @@
         <div class="acts">
           <button id="btn-hint" class="primary" type="button">提示<span class="mono" id="hint-count">0</span></button>
           <button id="btn-undo" class="ghost" type="button">撤销</button>
+          <button id="btn-restart" class="ghost" type="button" title="重开本局 (R)">重开本局</button>
           <button id="btn-new" class="ghost" type="button">换一局</button>
           <button id="btn-menu" class="ghost" type="button">回选档</button>
         </div>
@@ -138,7 +151,11 @@
           <span><i class="sw sw-done"></i>已各半的行/列</span>
           <span><i class="sw sw-bad"></i>坏了规矩</span>
         </div>
-        <p class="keyhint"><b>点一下</b> 换下一个符 · <b>拖动</b> 沿路铺同一个符 · <b>H</b> 提示 · <b>Z</b> 撤销</p>
+        <p class="keyhint">
+          <b>点一下</b> 换下一个符 · <b>拖动</b> 沿路铺同一个符<br>
+          <b>Enter</b>/<b>Space</b> 开局 · <b>P</b>/<b>Space</b> 暂停 · <b>R</b> 重开本局 · <b>M</b> 静音 · <b>F</b> 全屏<br>
+          <b>H</b> 提示 · <b>Z</b> 撤销 · <b>?</b> 看规则
+        </p>
       </aside>
     </section>
   </main>

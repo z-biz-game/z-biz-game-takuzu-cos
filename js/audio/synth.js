@@ -5,6 +5,30 @@
 let ctx = null;
 let master = null;
 let enabled = true;
+let suspended = false;
+
+// 实测用：静音/暂停期间这个计数必须不再增长——"只把 gain 设 0"是假静音，
+// 节点照建、图照跑，只是听不见。
+let oscillators = 0;
+
+const audible = () => enabled && !suspended;
+
+// 真停 AudioContext：不可发声时 suspend()，可发声时 resume()。
+// 自动播放策略下这两个 promise 都可能被拒，静音态不靠它们成立，所以一律吞掉。
+function syncContext() {
+  if (!ctx) return;
+  try {
+    if (!audible() && ctx.state === 'running') {
+      const p = ctx.suspend();
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+    } else if (audible() && ctx.state === 'suspended') {
+      const p = ctx.resume();
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+    }
+  } catch {
+    /* 没有 ctx 可用时静音仍然是成立的：一个振荡器都不会建 */
+  }
+}
 
 function audio() {
   if (typeof AudioContext === 'undefined' && typeof webkitAudioContext === 'undefined') return null;
@@ -19,7 +43,7 @@ function audio() {
       return null;
     }
   }
-  if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+  if (audible() && ctx.state === 'suspended') ctx.resume().catch(() => {});
   return ctx;
 }
 
@@ -27,11 +51,13 @@ function audio() {
 // a call to this; adding a second voice shape is how a game ends up with sounds that do not
 // belong to the same instrument.
 function tone({ f0, f1 = f0, dur = 0.12, type = 'sine', gain = 0.22, delay = 0 }) {
+  if (!audible()) return;
   const ac = audio();
-  if (!ac || !enabled) return;
+  if (!ac) return;
   const t = ac.currentTime + delay;
   const osc = ac.createOscillator();
   const vol = ac.createGain();
+  oscillators++;
   osc.type = type;
   osc.frequency.setValueAtTime(f0, t);
   osc.frequency.exponentialRampToValueAtTime(Math.max(40, f1), t + dur);
@@ -46,8 +72,21 @@ function tone({ f0, f1 = f0, dur = 0.12, type = 'sine', gain = 0.22, delay = 0 }
 export const Sound = {
   setEnabled(v) {
     enabled = !!v;
+    syncContext();
   },
   enabled: () => enabled,
+  // 暂停与静音是两把独立的锁：任何一把落下都不该再有声音节点被建出来。
+  setSuspended(v) {
+    suspended = !!v;
+    syncContext();
+  },
+  suspended: () => suspended,
+  state: () => ({
+    enabled,
+    suspended,
+    ctxState: ctx ? ctx.state : 'none',
+    oscillators,
+  }),
 
   place() {
     tone({ f0: 520, f1: 880, dur: 0.14, type: 'triangle', gain: 0.2 });
