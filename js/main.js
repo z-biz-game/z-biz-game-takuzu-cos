@@ -244,6 +244,39 @@ function begin({ tier = 'trainee', seed = null, resume = null } = {}) {
   return game;
 }
 
+// 重开：**同一道题**从头再来 —— 盘面、撤销栈、步数、提示次数、提示游标、计时、
+// 结算遮罩全归零，但不换题。跟「换一局」的分工：换一局是重抽一道新题（那是"再来
+// 一局"），这里是"这题我走错了，原地重来"——玩家要的是同一个题。
+//
+// 为什么不能只换一份干净的 st 就完事：那一步只碰得到引擎的 grid 与 history，UI 层的
+// 撤销栈、步数、提示次数、提示游标都是各自独立存着的缓存（详见 Game.resetAll 注释）。
+function restart() {
+  if (!game) return null;
+  game.resetAll();               // st + steps + moves + hints + cursor + status + lastHint
+  pulse = null;                  // 上一条提示留下的高亮，属于上一局
+  stroke = null;                 // 上一次没画完的拖拽手势
+  note = { text: '', good: false };  // 上一条提示的批注，属于上一局
+  el.winVeil.hidden = true;      // 结算遮罩收起：上一局赢了的遮罩不能压在重开后的盘上
+  baseElapsed = 0;               // 耗时归零
+  // 暂停中重开就保持停表，否则 startClock() 会把暂停期间憋下的墙钟一次性灌进计时。
+  if (paused) {
+    startedAt = 0;
+    clearInterval(ticker);
+    ticker = 0;
+  } else {
+    startClock();                // 没暂停就重新起跑，重开后的计时是这一局自己的
+  }
+  el.hintRule.textContent = '提示理由';
+  el.hintLine.textContent = '按 提示 会说出当前能推的一格，以及它依据哪条规则。';
+  show('game');
+  syncAll();
+  // 存档覆盖成本局的空盘：刷新页面不会又冒出走错那半局的线。
+  // 特意**不**碰 Store 的偏好（静音 / 减动效 / 最好成绩）——那些是玩家的东西，不是这一局的东西。
+  flushResume();
+  renderResumeCard();
+  return game;
+}
+
 function show(which) {
   el.viewMenu.hidden = which !== 'menu';
   el.viewGame.hidden = which !== 'game';
@@ -397,6 +430,7 @@ el.canvas.addEventListener('contextmenu', (ev) => ev.preventDefault());
 
 $('#btn-hint').addEventListener('click', useHint);
 $('#btn-undo').addEventListener('click', undo);
+$('#btn-restart').addEventListener('click', restart);
 $('#btn-new').addEventListener('click', () => begin({ tier: game ? game.puzzle.tier : 'trainee' }));
 $('#btn-menu').addEventListener('click', () => {
   flushResume();
@@ -429,6 +463,9 @@ window.addEventListener('keydown', (ev) => {
   if (ev.target && /input|textarea/i.test(ev.target.tagName)) return;
   if (ev.key === 'h') useHint();
   else if (ev.key === 'z') undo();
+  // R 重开同一题，**局中就能按**（不只结算后）：玩家涂到一半发现推错了，当场 R 一下重来。
+  // 本仓原先没有任何键占着 R（h/z 是玩法，M 切模式），所以不需要换键。
+  else if (ev.key === 'r' || ev.key === 'R') restart();
 });
 
 window.addEventListener('resize', draw);
@@ -449,6 +486,7 @@ window.takuzu = {
   },
   show,
   begin,
+  restart,
   useHint,
   undo,
   // The harness commits through the same path a pointer release does, so a scenario that passes

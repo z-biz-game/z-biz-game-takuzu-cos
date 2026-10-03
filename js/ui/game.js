@@ -47,6 +47,30 @@ export class Game {
     this.recompute();
   }
 
+  // 重开**同一道题**：把这一局整个归零，题面不动。
+  //
+  // 本仓与同族那几仓有个结构差别：引擎这边**没有** resetXxx() 这类复位函数，
+  // createState() 才是造一份干净状态的入口（grid 从题面重铺、history 清空），
+  // 所以这里直接换一份新的 st，而不是在旧 st 上逐字段清——后者漏一个字段就是
+  // 半局的痕迹（实测只清盘面时 steps 6 → 6、cursor 40 → 40，玩家还按得动撤销
+  // 回到走错那一步）。
+  //
+  // 换 st 之外，UI 层那一堆各自独立存着的缓存仍要挨个点名：撤销栈 this.steps、
+  // 步数 this.moves、提示次数 this.hints、提示游标 this.cursor、胜负 this.status、
+  // 上一条提示文案 this.lastHint。提示游标尤其要点：它决定下一条提示从推导脚本的
+  // 哪一行继续，不归零的话重开后的第一条提示会被跳过，玩家会觉得提示坏了。
+  resetAll() {
+    this.st = createState(this.board);  // 盘面重铺 + 引擎 history 清空
+    this.steps = [];                    // UI 撤销栈：换 st 清的是引擎那份，这份在 UI 层
+    this.moves = 0;                     // 步数归零
+    this.hints = 0;                     // 提示次数归零：提示要收钱，留着等于让玩家白嫖上一局的帮助
+    this.cursor = 0;                    // 提示脚本从头再来
+    this.status = 'playing';            // 胜负回判：上一局赢了也不能把重开后的盘算成已通关
+    this.lastHint = null;               // 上一条提示文案属于上一局
+    this.recompute();
+    return this;
+  }
+
   recompute() {
     this.diag = diagnose(this.board, this.st.grid);
     this.problems = verify(this.board, this.st.grid);
