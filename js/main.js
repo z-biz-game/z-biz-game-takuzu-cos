@@ -55,7 +55,6 @@ let pulse = null;
 let stroke = null;
 let startedAt = 0;
 let baseElapsed = 0;
-let paused = false;
 
 // animClock 只由帧 dt 累加；每一段装饰动画都按 (animClock - t0) 取**闭式解**，
 // 不做 `x += v*dt` 那种增量积分。于是同一虚拟时刻在 30/60/120Hz 下读到同一个值——
