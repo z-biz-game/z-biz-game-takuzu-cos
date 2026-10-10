@@ -5,32 +5,17 @@
 let ctx = null;
 let master = null;
 let enabled = true;
-let suspended = false;
+// 静音偏好：读回存档。放在模块顶层，这样每次 init（首屏、开局、重开）都拿到同一个答案，
+// 重开一局不会把玩家的静音选择洗掉。
+try {
+  if (localStorage.getItem('cos.mute') === '1') enabled = false;
+} catch { /* 读不到就沿用默认开声 */ }
 
-// 实测用：静音/暂停期间这个计数必须不再增长——"只把 gain 设 0"是假静音，
-// 节点照建、图照跑，只是听不见。
-let oscillators = 0;
-
-const audible = () => enabled && !suspended;
-
-// 真停 AudioContext：不可发声时 suspend()，可发声时 resume()。
-// 自动播放策略下这两个 promise 都可能被拒，静音态不靠它们成立，所以一律吞掉。
-function syncContext() {
-  if (!ctx) return;
-  try {
-    if (!audible() && ctx.state === 'running') {
-      const p = ctx.suspend();
-      if (p && typeof p.catch === 'function') p.catch(() => {});
-    } else if (audible() && ctx.state === 'suspended') {
-      const p = ctx.resume();
-      if (p && typeof p.catch === 'function') p.catch(() => {});
-    }
-  } catch {
-    /* 没有 ctx 可用时静音仍然是成立的：一个振荡器都不会建 */
-  }
-}
 
 function audio() {
+  // 静音态第一行就返回：既不把已挂起的 ctx 拉起来，也不新建节点。
+  // 这条比 "gain 设 0" 强一档——静音时这个 AudioContext 根本没有在跑。
+  if (!enabled) return null;
   if (typeof AudioContext === 'undefined' && typeof webkitAudioContext === 'undefined') return null;
   if (!ctx) {
     const Ctor = typeof AudioContext !== 'undefined' ? AudioContext : webkitAudioContext;
@@ -71,8 +56,21 @@ function tone({ f0, f1 = f0, dur = 0.12, type = 'sine', gain = 0.22, delay = 0 }
 
 export const Sound = {
   setEnabled(v) {
-    enabled = !!v;
-    syncContext();
+    const on = !!v;
+    if (on === enabled) return;
+    enabled = on;
+    // 真静音：停掉 AudioContext 本身（时钟停、图不跑），不是把音量拧到 0。
+    if (ctx) {
+      if (on) {
+        if (ctx.state === 'suspended' && ctx.resume) ctx.resume().catch(() => {});
+      } else if (ctx.state === 'running' && ctx.suspend) {
+        ctx.suspend().catch(() => {});
+      }
+    }
+    // 偏好落盘：刷新页面后 init 要能读回静音态，不能自己弹回来。
+    try {
+      localStorage.setItem('cos.mute', on ? '1' : '0');
+    } catch { /* 隐私模式下写不进去也不该炸游戏 */ }
   },
   enabled: () => enabled,
   // 暂停与静音是两把独立的锁：任何一把落下都不该再有声音节点被建出来。

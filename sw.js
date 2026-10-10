@@ -1,62 +1,56 @@
 'use strict';
+// 离线可用 + 永不被旧缓存钉住。
+//
+// 两条实测换来的口径：
+//   1) 一律 **网络优先**，命中网络才回填缓存。手工 VERSION + cache-first 的组合，
+//      发出去的 HTML 会配上上一版的 js/css，出一个"新界面配旧逻辑"的鬼状态，
+//      而且玩家自己无法恢复（只能等缓存过期）。
+//   2) 缓存名带版本号（activate 时清掉非本版的名字）。改版**不需要**同步 bump：
+//      同名文件重绘之后，网络优先这一条保证客户端下一次联网就拿到新字节。
+const VERSION = 'takuzu-cos-v1';
+const CACHE = `${VERSION}-shell`;
+const PRECACHE = ['index.html', 'manifest.webmanifest'];
 
-// 版本号进缓存名：改一次部署就换一个新 cache，activate 里把旧的一次性清掉。
-// 若沿用固定名 + cache-first，js/css 会被永久钉在旧版本，出新 HTML 配旧 JS 的鬼状态。
-const VERSION = 'takuzu-v1.0.0';
-const RUNTIME = `${VERSION}-runtime`;
-
-// 装到桌面/首屏离线打开要用的那几份。少一个文件 addAll 整体失败，所以只列盘上真实存在的。
-const SHELL = [
-  './',
-  './index.html',
-  './manifest.webmanifest',
-  './css/game.css',
-  './js/main.js',
-  './js/pwa.js',
-  './icons/favicon-32.png',
-  './icons/icon-192.png',
-  './icons/icon-512.png',
-  './icons/apple-touch-icon.png',
-  './assets/img/board-texture.png',
-  './assets/img/spark.png',
-];
-
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(RUNTIME).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting())
+self.addEventListener('install', (ev) => {
+  // 首屏两件套先抓下来：断网时至少能打开界面，而不是浏览器的错误页。
+  ev.waitUntil(
+    caches.open(CACHE).then((c) => c.addAll(PRECACHE).catch(() => {})).then(() => self.skipWaiting())
   );
 });
 
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
+self.addEventListener('activate', (ev) => {
+  ev.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== RUNTIME).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => !k.startsWith(VERSION)).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
 
-// 一律网络优先：联网就取最新的并顺手回填；断网/5xx 才退缓存。
-// 导航请求失败时退到缓存里的 index.html，这样飞行模式下已装过的应用还能开。
-self.addEventListener('fetch', (event) => {
-  const req = event.request;
+self.addEventListener('fetch', (ev) => {
+  const req = ev.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
 
-  event.respondWith(
+  ev.respondWith(
     fetch(req)
       .then((res) => {
         if (res && res.ok) {
           const copy = res.clone();
-          caches.open(RUNTIME).then((cache) => cache.put(req, copy));
+          caches.open(CACHE).then((c) => c.put(req, copy));
         }
         return res;
       })
-      .catch(() =>
-        caches.match(req).then((hit) =>
-          hit || (req.mode === 'navigate' ? caches.match('./index.html') : undefined)
-        )
-      )
+      .catch(async () => {
+        const hit = await caches.match(req);
+        if (hit) return hit;
+        // 导航请求（地址栏/刷新/桌面图标）离线时回落到缓存的那份壳，不白屏。
+        if (req.mode === 'navigate') {
+          const shell = await caches.match('index.html');
+          if (shell) return shell;
+        }
+        return Response.error();
+      })
   );
 });
