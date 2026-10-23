@@ -745,5 +745,66 @@
     return report({ cell: A().view.geo.cell, dpr: A().view.geo.dpr });
   };
 
-  w.__ng = { engine, gen, play, hint, stroke, conflict, save, resume, layout };
+  // ---------- hud: 暂停 / 全屏 / 静音 / 重开（这几个入口是并线这一轮才接上的） ----------
+
+  const hud = async () => {
+    A().begin({ tier: 'trainee', seed: 'scen|hud' });
+    await wait(80);
+    const g = A().game;
+    ck('HUD 上有暂停键', !!$('#btn-pause'));
+    ck('HUD 上有全屏键', !!$('#btn-full'));
+    eq('全屏键写着未按下', $('#btn-full').getAttribute('aria-pressed'), 'false');
+    ck('全屏键有可读的名字', !!($('#btn-full').getAttribute('aria-label') || $('#btn-full').textContent));
+    ck('暂停遮罩起初藏着', !shown('#pause-veil'));
+
+    // 先落一笔：暂停那一段要有一笔可停的账
+    const t = [...Array(g.board.size).keys()].find((i) => !E().isGiven(g.board, i));
+    A().stroke([t], g.puzzle.solution[t]);
+    await wait(40);
+    eq('落笔后步数进一', text('#stat-moves'), '1');
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', bubbles: true }));
+    await wait(80);
+    ck('P 键进入暂停态', A().runtime().paused === true);
+    ck('暂停遮罩出现', shown('#pause-veil'));
+    eq('暂停键写成按下态', $('#btn-pause').getAttribute('aria-pressed'), 'true');
+    const tPause = text('#stat-time');
+    await wait(1200);
+    eq('暂停期间计时不走', text('#stat-time'), tPause);
+    ck('暂停挂起音频设备', A().runtime().audio.suspended === true, JSON.stringify(A().runtime().audio));
+    $('#btn-pause-play').click();
+    await wait(80);
+    ck('继续关掉暂停遮罩', !shown('#pause-veil'));
+    eq('恢复不丢步数', text('#stat-moves'), '1');
+    eq('恢复不留暂停残态', A().runtime().paused, false);
+
+    // 静音：键与按钮必须是同一条路，否则两处会各说各话
+    const soundWas = text('#btn-sound');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', bubbles: true }));
+    await wait(60);
+    const soundNow = text('#btn-sound');
+    ck('M 键改了音效按钮', soundNow !== soundWas, `${soundWas} → ${soundNow}`);
+    eq('M 键与按钮的开关一致', $('#btn-sound').getAttribute('aria-pressed'), String(soundNow === '音效 开'));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', bubbles: true }));
+    await wait(40);
+    eq('再按 M 回到原样', text('#btn-sound'), soundWas);
+
+    // 重开：同一道题，账本归零
+    const seedBefore = A().game.puzzle.originSeed;
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'r', bubbles: true }));
+    await wait(120);
+    eq('重开留在同一张盘', A().game.puzzle.originSeed, seedBefore);
+    eq('重开清零步数', text('#stat-moves'), '0');
+    eq('重开清零提示', text('#stat-hints'), '0');
+    eq('重开把计时放回 00:00', text('#stat-time'), '00:00');
+
+    // ? 回到选档页
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '?', bubbles: true }));
+    await wait(60);
+    ck('? 键回到选档页', shown('#view-menu'));
+    ck('? 键让位给棋局', !shown('#view-game'));
+    return report({});
+  };
+
+  w.__ng = { engine, gen, play, hint, stroke, conflict, save, resume, layout, hud };
 })(window);

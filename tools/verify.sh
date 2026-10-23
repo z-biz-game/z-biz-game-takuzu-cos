@@ -79,7 +79,7 @@ echo "boot: takuzu $BOOT at $BASE"
 [ "$BOOT" = "nope" ] && { echo "window.takuzu never appeared at $BASE" >&2; exit 4; }
 
 FAILED=0
-for s in ${SCENARIOS:-engine gen play hint stroke conflict save resume layout}; do
+for s in ${SCENARIOS:-engine gen play hint stroke conflict save resume layout hud}; do
   echo "=== $s ==="
   node tools/playtest.cjs scenario "$s" 2>/tmp/takuzu-$s.console.log | tail -1 | sed 's/^RESULT //' | python3 -c "
 import sys, json

@@ -35,6 +35,13 @@ jobs:
         env:
           SAMPLES: "24"
 
+      # 本仓自带的帧率无关性闸：官方探针 cos_frame_probe.js 载不动 ESM 仓（它在装载期就
+      # SyntaxError，报「无法比对」——那不是通过），所以仓里有一套自己的三档对拍
+      # （30/60/120Hz 喂同一串虚拟时长，逐字段比状态），再加一道阴性对照（把帧 dt 换成
+      # 常量步长，必须被定罪）。它此前只在本机跑过——闸写了不跑等于没有闸，所以接进 CI。
+      - name: Frame-rate parity (own ruler + negative control)
+        run: node tools/frame-parity.mjs
+
       - name: Entry files exist
         run: test -f index.html && grep -q '<canvas' index.html && grep -q 'js/main.js' index.html
       # 部署集闸：按 tools/assemble-site.sh 那份清单真拷一遍产物，要求页面会去要的东西
@@ -59,7 +66,7 @@ jobs:
         with:
           node-version: 22
 
-      # 250 项浏览器断言（9 个场景 engine gen play hint stroke conflict save resume layout）在两种 URL 形态下的条数逐条相同，是 2026-09-28 在本机实跑出来的，
+      # 273 项浏览器断言（10 个场景 engine gen play hint stroke conflict save resume layout hud）在两种 URL 形态下的条数逐条相同，是在本机实跑出来的，
       # 不是引用。在这一步之前 CI 一步都没跑过 tools/verify.sh：闸是写了给人看的，不是给人跑的。
       - name: Browser gate, root shape
         env:

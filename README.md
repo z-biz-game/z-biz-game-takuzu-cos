@@ -21,8 +21,8 @@
   "不管剩下的格怎么填，都不可能让每行每列各半"。它只在真矛盾时开口（见 DESIGN §6）。
 - 难度不是标签：`初学 → 大师` 五档的分数带是**实测**出来的（`npm run balance` 打印分位表），
   档位排的是「盘面多大」×「藏掉多少格」，`band` 是**选取目标**，`balance` 盯着不许漂移。
-- 规模：9 个 ES Module / 1,803 行 JS + 8 个验证脚本 / 2,391 行 + 543 行 CSS/HTML，**运行时依赖 0 个**。
-- 验证：**124 项 Node 断言** + **250 项浏览器断言**（9 个场景，读 DOM 几何与画布像素，不读标志位）。
+- 规模：10 个 ES Module / 2,232 行 JS + 10 个验证脚本 / 2,954 行 + 674 行 CSS/HTML，**运行时依赖 0 个**。
+- 验证：**124 项 Node 断言** + **273 项浏览器断言**（10 个场景，读 DOM 几何与画布像素，不读标志位）。
 - **在线试玩**：<https://z-biz-game.github.io/z-biz-game-takuzu-cos/>（`main` 分支推送即自动部署）
 
 ---
@@ -39,7 +39,8 @@ npm run electron     # 桌面壳（electron/main.cjs，同一份代码）
 npm run check        # 逐文件 node --check 语法门禁
 npm test             # 引擎断言 124 项：规则可靠性 / 生成保证 / 状态机 / 存档形状
 npm run balance      # 难度实测台：每档分数分位、命中率、求解代价、档位阶梯门禁
-npm run verify       # 无头 Chrome 跑 9 个浏览器场景（需本机 Chrome，见下）
+npm run parity       # 帧率无关性闸：三档对拍 + 阴性对照（官方探针载不动 ESM 仓，仓里自带这一道）
+npm run verify       # 无头 Chrome 跑 10 个浏览器场景（需本机 Chrome，见下）
 ```
 
 `npm run verify` 自己起服务、自己开 Chrome、自己收尾，退出码即结论：
@@ -54,6 +55,7 @@ npm run verify       # 无头 Chrome 跑 9 个浏览器场景（需本机 Chrome
 === save ===      21 checks, 0 failed  {bytes: 254}
 === resume ===    24 checks, 0 failed
 === layout ===    24 checks, 0 failed  {cell: 64, dpr: 1}
+=== hud ===      23 checks, 0 failed
 === ALL GREEN ===
 ```
 
@@ -74,6 +76,13 @@ BASE_URL=https://z-biz-game.github.io/z-biz-game-takuzu-cos/ npm run verify
 | **点带角标的格** | 那是题面给的，改不了——也会这么说 |
 | **提示**（或 `H`） | 给出当前推得出的一格，并点名规则；这一步真的落子，也真的计入求助次数 |
 | **撤销**（或 `Z`） | 退掉一整个手势——一笔铺过的格子一起回来 |
+| **暂停**（或 `P`） | 停表、挂起音频设备、盖住盘面；「继续」回原处，步数与已填格都不丢 |
+| **重开本局**（或 `R`） | **同一道题**从头再来：笔迹、撤销栈、步数、提示次数、计时全归零，题面不变 |
+| **换一局** | 同档换一道新题（键 `N`） |
+| **静音**（或 `M`） | 音效开关，选择写进存档 |
+| **全屏**（或 `F`） | 全屏切换；浏览器不让网页自己全屏时，按钮置灰并写明原因 |
+| **看规则**（或 `?`） | 打开玩法浮层；`Esc` 收起 |
+| **开局**（`Enter`／`Space`） | 选档页开局；关卡内按 `Space` 等于暂停 |
 
 判胜用的是 `verify()`：只读盘面，检查"每格都有符、每处都不三连、每行每列都各半、题面没被改"。
 它不读推导脚本，所以**提示逻辑写错也伪造不出一场胜利**。
@@ -126,7 +135,10 @@ js/engine/generate.js 种解 → 逐格藏 → 按"推得完"回滚 → 按难�
 js/ui/game.js       状态机：循环落子、一笔一撤销、提示、判胜
 js/render/board.js  几何 + 绘制 + 命中（环与实心是两种形状，不只靠颜色）
 js/store.js         localStorage 单键存档：种子 + 符号 + 这一局的花费
-tools/              engine-test / balance / playtest(CDP) / scenarios / verify.sh / assemble-site.sh / deploy-set.mjs / deploy-set-selftest.mjs
+js/pwa.js           Service worker 注册（只在安全上下文里注册，file:// 整段跳过）
+tools/              engine-test / balance / playtest(CDP) / scenarios / verify.sh / assemble-site.sh / deploy-set.mjs / deploy-set-selftest.mjs / frame-parity / frame-probe
+tools/frame-parity.mjs  自带的帧率无关性闸：30/60/120Hz 喂同一串虚拟时长逐字段对拍 + 阴性对照
+tools/frame-probe.mjs   上面那道闸的单档虚拟帧驱动（沙箱 DOM/音频/时钟桩）
 tools/assemble-site.sh  部署产物的唯一清单（pages.yml 与本地闸调同一支）
 tools/deploy-set.mjs  部署集闸：检查即将上传的那份产物
 tools/deploy-set-selftest.mjs  部署集闸的阴性自证（每一类断言当场打红一次）
@@ -158,7 +170,7 @@ MIT。见 `LICENSE`。
   内联成 base64 的图标先解码再读同一段。后一条不是可选项：图标可能住在清单里而不是盘上的 `.png`
   （有的仓另有一条"零二进制文件"的承诺，那条只约束"有没有 .png 这个文件"）；如果 P 段只筛文件名，
   声明写 512 而真图 192 就一路放行。
-- **钉住两个数**：R 段实际检查的路径条数（`24`）与这一次跑的断言条数（`42`），两个数
+- **钉住两个数**：R 段实际检查的路径条数（`26`）与这一次跑的断言条数（`45`），两个数
   都钉在 `tools/deploy-set.mjs` 顶部的那对常量里。没改页面却掉了，说明解析断了；删掉一张图标会同时
   少一条 R10 与那张的 P1/P2，所以两个数一起钉，断言条数能漂就是闸在缩水的信号。这一节故意只写数值、
   不写那对常量的名字，也不写别仓文档闸的编号：有的仓的文档闸会拿"文档里出现过的同名标识号"回数它
@@ -169,7 +181,7 @@ MIT。见 `LICENSE`。
 各下一刀（X1 清单不收位图目录 / X2 模块边改名 / X3 CSS 写绝对路径 / X4 `start_url` 绝对 /
 X5 删光 >=512 图标 / X6 少一个必填字段 / X7 声明尺寸与真图不符 / X8 workflow 不调脚本 /
 X9 CI 不跑闸 / X10 是阴性对照——往入口 JS 追加一行只写在注释里的假路径，闸必须仍然绿、条数仍然
-`24`、断言仍然 `42`；X11 og:image 退回相对路径 / X12 og:image 的前缀指向别的 slug /
+`26`、断言仍然 `45`；X11 og:image 退回相对路径 / X12 og:image 的前缀指向别的 slug /
 X13 内联位图谎报尺寸——只在有靶子时下：X11/X12 要页面上那句 og:image，X13 要清单里真有一段 base64
 图标，没有就打印 SKIP；反过来 X1 没有位图目录可砍时改砍 css，P 段一位都不核时台架直接报靶子不够），
 要求每一刀都让闸**点名**变红。靶子从 `DEPLOY_SET_DUMP=1`

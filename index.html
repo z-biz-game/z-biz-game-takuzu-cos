@@ -2,18 +2,31 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" /><meta name="twitter:card" content="summary">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#080B16" />
 <title>数白 · Takuzu 二值偶格推理</title>
-<meta name="description" content="Takuzu / Binairo 数白：用 ○ 与 ● 填满棋盘，不许三连同符，每行每列两符各半。每局唯一解、每局都能用逻辑推到底，提示只说推得出的那一格。" /><meta property="og:title" content="数白 · Takuzu 二值偶格推理"><meta property="og:description" content="Takuzu / Binairo 数白：用 ○ 与 ● 填满棋盘，不许三连同符，每行每列两符各半。每局唯一解、每局都能用逻辑推到底，提示只说推得出的那一格。"><meta property="og:image" content="https://z-biz-game.github.io/z-biz-game-takuzu-cos/icons/icon-512.png"><meta name="twitter:image" content="https://z-biz-game.github.io/z-biz-game-takuzu-cos/icons/icon-512.png">
-<!-- Inline icon: without it the browser probes the Pages domain root for /favicon.ico and logs a 404. -->
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23080B16'/%3E%3Ccircle cx='11' cy='11' r='5' fill='none' stroke='%237BB8FF' stroke-width='2.6'/%3E%3Ccircle cx='21' cy='21' r='5' fill='%23FFC85C'/%3E%3C/svg%3E" />
+<meta name="description" content="Takuzu / Binairo 数白：用 ○ 与 ● 填满棋盘，不许三连同符，每行每列两符各半。每局唯一解、每局都能用逻辑推到底，提示只说推得出的那一格。" />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png" />
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png" />
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="数白" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="数白 Takuzu" />
+<meta property="og:title" content="数白 · Takuzu 二值偶格推理" />
+<meta property="og:description" content="只有 ○ 与 ● 两种符号：不许三连同符，每行每列两符各半。每局唯一解，每局都能用逻辑推到底。" />
+<meta property="og:url" content="https://z-biz-game.github.io/z-biz-game-takuzu-cos/" />
+<meta property="og:image" content="https://z-biz-game.github.io/z-biz-game-takuzu-cos/assets/img/og-card.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="数白 · Takuzu 二值偶格推理" />
+<meta name="twitter:image" content="https://z-biz-game.github.io/z-biz-game-takuzu-cos/assets/img/og-card.png" />
 <link rel="stylesheet" href="css/game.css" />
-
-  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
-  <link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png">
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <link rel="manifest" href="manifest.webmanifest">
 </head>
 <body>
 <div id="app">
@@ -23,9 +36,9 @@
       <p class="sub">Takuzu · 二值偶格</p>
     </div>
     <div class="top-actions">
-      <button id="btn-sound" class="ghost" type="button" aria-pressed="true" title="静音 / 恢复音效 · M">音效 开</button>
+      <button id="btn-full" class="ghost icon-btn" type="button" aria-pressed="false" aria-label="全屏" title="全屏 (F)">⛶</button>
+      <button id="btn-sound" class="ghost" type="button" aria-pressed="true">音效 开</button>
       <button id="btn-motion" class="ghost" type="button" aria-pressed="false">动效 全</button>
-      <button type="button" id="btn-pause" class="ghost" aria-pressed="false" title="暂停 (P)">暂停</button><button id="btn-fullscreen" class="ghost" type="button" aria-pressed="false" title="全屏（F）">全屏</button>
     </div>
   </header>
 
@@ -111,7 +124,7 @@
         <div class="acts">
           <button id="btn-hint" class="primary" type="button">提示<span class="mono" id="hint-count">0</span></button>
           <button id="btn-undo" class="ghost" type="button">撤销</button>
-          <button id="btn-restart" class="ghost" type="button" title="重开同一题：把这一局的笔迹与账本清空回到开局，题面不变（R）">重开本题</button>
+          <button id="btn-restart" class="ghost" type="button" title="重开本局 (R)">重开本局</button>
           <button id="btn-new" class="ghost" type="button">换一局</button>
           <button id="btn-menu" class="ghost" type="button">回选档</button>
         </div>
@@ -155,6 +168,5 @@
 
 <script type="module" src="js/pwa.js"></script>
 <script type="module" src="js/main.js"></script>
-  <script src="js/sw-register.js"></script>
 </body>
 </html>
